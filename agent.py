@@ -1,11 +1,9 @@
 """Core agent — runs skills and free-form entrepreneurship chat."""
 
-import anthropic
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, COMPANY_NAME
+from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, COMPANY_NAME, NVIDIA_API_KEY, NVIDIA_MODEL
 from skills.prompts import SKILL_MAP
 from database import log_interaction
 
-_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 _memory: dict[str, list] = {}
 
 SYSTEM_PROMPT = f"""You are the Entrepreneur Intelligence Agent for {COMPANY_NAME} — a ruthlessly contrarian advisor who thinks in first principles, not conventional wisdom.
@@ -36,12 +34,37 @@ RESPONSE STYLE:
 You remember everything from this conversation. Build on prior context. Push harder each time."""
 
 
+def _make_client():
+    """Return (client, model, mode) — nvidia or anthropic."""
+    if NVIDIA_API_KEY:
+        from openai import OpenAI
+        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+        return client, NVIDIA_MODEL, "nvidia"
+    else:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        return client, CLAUDE_MODEL, "anthropic"
+
+
+def _call(client, model, mode, system, messages, max_tokens) -> str:
+    if mode == "nvidia":
+        msgs = [{"role": "system", "content": system}] + messages
+        r = client.chat.completions.create(
+            model=model, messages=msgs, max_tokens=max_tokens, temperature=0.8
+        )
+        return r.choices[0].message.content
+    else:
+        r = client.messages.create(
+            model=model, max_tokens=max_tokens, system=system, messages=messages
+        )
+        return r.content[0].text
+
+
 def run_skill(skill_id: str, user_input: str, context: str = "", session_id: str = "default") -> str:
     skill = SKILL_MAP.get(skill_id)
     if not skill:
         return f"Unknown skill: {skill_id}"
 
-    # Try to enrich with live web search for relevant skills
     web_context = ""
     if skill_id in ("problem-scanner", "trend-spotter", "competition-mapper"):
         try:
@@ -54,13 +77,9 @@ def run_skill(skill_id: str, user_input: str, context: str = "", session_id: str
     if web_context:
         prompt_text += f"\n\n[Live web search results — use to ground your analysis]:\n{web_context}"
 
-    response = _client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt_text}],
-    )
-    result = response.content[0].text
+    client, model, mode = _make_client()
+    result = _call(client, model, mode, SYSTEM_PROMPT,
+                   [{"role": "user", "content": prompt_text}], max_tokens=2048)
     log_interaction(session_id, skill_id, user_input[:300], result)
     return result
 
@@ -73,13 +92,8 @@ def chat(user_input: str, session_id: str = "default") -> str:
     if len(_memory[session_id]) > 40:
         _memory[session_id] = _memory[session_id][-40:]
 
-    response = _client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=_memory[session_id],
-    )
-    reply = response.content[0].text
+    client, model, mode = _make_client()
+    reply = _call(client, model, mode, SYSTEM_PROMPT, _memory[session_id], max_tokens=1024)
     _memory[session_id].append({"role": "assistant", "content": reply})
     log_interaction(session_id, "chat", user_input[:300], reply)
     return reply
