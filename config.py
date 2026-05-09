@@ -9,5 +9,5 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "Volvere.io")
 PORT = int(os.environ.get("PORT", 8000))
-NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
-NVIDIA_MODEL = "meta/llama-3.1-70b-instruct"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.1-70b-versatile"

@@ -1,6 +1,6 @@
-"""Core agent — Claude first, NVIDIA fallback if credits run out."""
+"""Core agent — Claude first, Groq fallback if credits run out."""
 
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, COMPANY_NAME, NVIDIA_API_KEY, NVIDIA_MODEL
+from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, COMPANY_NAME, GROQ_API_KEY, GROQ_MODEL
 from skills.prompts import SKILL_MAP
 from database import log_interaction
 
@@ -35,7 +35,7 @@ You remember everything from this conversation. Build on prior context. Push har
 
 
 def _call(system: str, messages: list, max_tokens: int) -> str:
-    """Try Claude first. If credits exhausted, fall back to NVIDIA."""
+    """Try Claude first. If credits exhausted, fall back to Groq (free)."""
     # --- Try Anthropic ---
     if ANTHROPIC_API_KEY:
         try:
@@ -47,21 +47,21 @@ def _call(system: str, messages: list, max_tokens: int) -> str:
         except Exception as e:
             err = str(e).lower()
             if "credit" in err or "balance" in err or "billing" in err:
-                pass  # fall through to NVIDIA
+                pass  # fall through to Groq
             else:
                 raise
 
-    # --- Fall back to NVIDIA ---
-    if NVIDIA_API_KEY:
+    # --- Fall back to Groq ---
+    if GROQ_API_KEY:
         from openai import OpenAI
-        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+        client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
         msgs = [{"role": "system", "content": system}] + messages
         r = client.chat.completions.create(
-            model=NVIDIA_MODEL, messages=msgs, max_tokens=max_tokens, temperature=0.8
+            model=GROQ_MODEL, messages=msgs, max_tokens=max_tokens, temperature=0.8
         )
         return r.choices[0].message.content
 
-    raise RuntimeError("No working API. Add credits to Anthropic or fix NVIDIA_API_KEY.")
+    raise RuntimeError("No working API. Add Anthropic credits or set GROQ_API_KEY.")
 
 
 def run_skill(skill_id: str, user_input: str, context: str = "", session_id: str = "default") -> str:
