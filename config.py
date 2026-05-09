@@ -10,4 +10,4 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "Volvere.io")
 PORT = int(os.environ.get("PORT", 8000))
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.1-70b-versatile"
+GROQ_MODEL = "llama-3.3-70b-versatile"
