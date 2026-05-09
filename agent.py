@@ -1,4 +1,4 @@
-"""Core agent — runs skills and free-form entrepreneurship chat."""
+"""Core agent — Claude first, NVIDIA fallback if credits run out."""
 
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, COMPANY_NAME, NVIDIA_API_KEY, NVIDIA_MODEL
 from skills.prompts import SKILL_MAP
@@ -34,30 +34,34 @@ RESPONSE STYLE:
 You remember everything from this conversation. Build on prior context. Push harder each time."""
 
 
-def _make_client():
-    """Return (client, model, mode) — nvidia or anthropic."""
+def _call(system: str, messages: list, max_tokens: int) -> str:
+    """Try Claude first. If credits exhausted, fall back to NVIDIA."""
+    # --- Try Anthropic ---
+    if ANTHROPIC_API_KEY:
+        try:
+            import anthropic
+            r = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY).messages.create(
+                model=CLAUDE_MODEL, max_tokens=max_tokens, system=system, messages=messages
+            )
+            return r.content[0].text
+        except Exception as e:
+            err = str(e).lower()
+            if "credit" in err or "balance" in err or "billing" in err:
+                pass  # fall through to NVIDIA
+            else:
+                raise
+
+    # --- Fall back to NVIDIA ---
     if NVIDIA_API_KEY:
         from openai import OpenAI
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
-        return client, NVIDIA_MODEL, "nvidia"
-    else:
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        return client, CLAUDE_MODEL, "anthropic"
-
-
-def _call(client, model, mode, system, messages, max_tokens) -> str:
-    if mode == "nvidia":
         msgs = [{"role": "system", "content": system}] + messages
         r = client.chat.completions.create(
-            model=model, messages=msgs, max_tokens=max_tokens, temperature=0.8
+            model=NVIDIA_MODEL, messages=msgs, max_tokens=max_tokens, temperature=0.8
         )
         return r.choices[0].message.content
-    else:
-        r = client.messages.create(
-            model=model, max_tokens=max_tokens, system=system, messages=messages
-        )
-        return r.content[0].text
+
+    raise RuntimeError("No working API. Add credits to Anthropic or fix NVIDIA_API_KEY.")
 
 
 def run_skill(skill_id: str, user_input: str, context: str = "", session_id: str = "default") -> str:
@@ -75,11 +79,9 @@ def run_skill(skill_id: str, user_input: str, context: str = "", session_id: str
 
     prompt_text = skill["prompt"].format(input=user_input, context=context)
     if web_context:
-        prompt_text += f"\n\n[Live web search results — use to ground your analysis]:\n{web_context}"
+        prompt_text += f"\n\n[Live web search results]:\n{web_context}"
 
-    client, model, mode = _make_client()
-    result = _call(client, model, mode, SYSTEM_PROMPT,
-                   [{"role": "user", "content": prompt_text}], max_tokens=2048)
+    result = _call(SYSTEM_PROMPT, [{"role": "user", "content": prompt_text}], max_tokens=2048)
     log_interaction(session_id, skill_id, user_input[:300], result)
     return result
 
@@ -92,8 +94,7 @@ def chat(user_input: str, session_id: str = "default") -> str:
     if len(_memory[session_id]) > 40:
         _memory[session_id] = _memory[session_id][-40:]
 
-    client, model, mode = _make_client()
-    reply = _call(client, model, mode, SYSTEM_PROMPT, _memory[session_id], max_tokens=1024)
+    reply = _call(SYSTEM_PROMPT, _memory[session_id], max_tokens=1024)
     _memory[session_id].append({"role": "assistant", "content": reply})
     log_interaction(session_id, "chat", user_input[:300], reply)
     return reply
