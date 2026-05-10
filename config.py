@@ -11,3 +11,5 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "Volvere.io")
 PORT = int(os.environ.get("PORT", 8000))
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
+SALES_AGENT_URL = os.environ.get("SALES_AGENT_URL", "")
+EMAIL_AGENT_URL = os.environ.get("EMAIL_AGENT_URL", "")

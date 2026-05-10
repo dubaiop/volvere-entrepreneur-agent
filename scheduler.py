@@ -1,6 +1,7 @@
-"""Scheduled jobs — daily opportunity alert at 7am Dubai time."""
+"""Scheduled jobs — daily opportunity pipeline at 7am Dubai time."""
 
 import logging
+import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -23,20 +24,105 @@ Format:
 Make it specific, contrarian, and actionable. Focus on underserved markets or new problems created by recent tech or regulation shifts."""
 
 
-def daily_opportunity_alert():
-    logger.info("Sending daily opportunity alert...")
+def daily_full_pipeline():
+    """
+    Full autonomous pipeline:
+    1. Find opportunity (trend-spotter)
+    2. Validate it (opportunity-validator)
+    3. Model it (business-model-designer)
+    4. Find leads (web search)
+    5. Write outreach (sales agent API)
+    6. Push everything to Telegram
+    """
+    logger.info("Starting daily opportunity pipeline...")
     try:
         from agent import run_skill
-        from telegram_alerts import alert_daily_opportunity
-        result = run_skill("trend-spotter", OPPORTUNITY_PROMPT, context="Dubai, MENA, global tech", session_id="scheduler")
-        alert_daily_opportunity(result[:3500])
+        from telegram_alerts import alert_pipeline_result, alert_daily_opportunity
+
+        # Step 1 — Find opportunity
+        logger.info("Step 1: Finding opportunity...")
+        opportunity = run_skill(
+            "trend-spotter", OPPORTUNITY_PROMPT,
+            context="Dubai, MENA, global tech, AI, B2B SaaS",
+            session_id="scheduler"
+        )
+
+        # Step 2 — Validate it
+        logger.info("Step 2: Validating opportunity...")
+        validation = run_skill(
+            "opportunity-validator", opportunity[:1200],
+            context="lean team of 1-3 people, volvere.io AI agent platform, Dubai",
+            session_id="scheduler"
+        )
+
+        # If the agent rates it PASS, still send it but skip outreach
+        is_strong = "❌ PASS" not in validation
+
+        # Step 3 — Business model + ICP (only if not a hard pass)
+        biz_model = ""
+        if is_strong:
+            logger.info("Step 3: Designing business model...")
+            biz_model = run_skill(
+                "business-model-designer", opportunity[:1200],
+                context="lean team of 1-3, volvere.io, AI agent platform, Dubai",
+                session_id="scheduler"
+            )
+
+        # Step 4 — Find leads
+        leads = ""
+        if is_strong and biz_model:
+            logger.info("Step 4: Searching for leads...")
+            try:
+                from actions import find_leads
+                leads = find_leads(biz_model[:300])
+            except Exception as e:
+                logger.warning(f"Lead search skipped: {e}")
+
+        # Step 5 — Generate outreach via sales agent
+        outreach = ""
+        if is_strong and biz_model:
+            logger.info("Step 5: Generating outreach...")
+            try:
+                from actions import generate_outreach
+                outreach = generate_outreach(opportunity, biz_model)
+            except Exception as e:
+                logger.warning(f"Outreach generation skipped: {e}")
+
+        # Step 6 — Auto-send Touch 1 if a target email is configured
+        sent_to = ""
+        target_email = os.environ.get("OUTREACH_TARGET_EMAIL", "")
+        target_name = os.environ.get("OUTREACH_TARGET_NAME", "")
+        if is_strong and outreach and target_email:
+            logger.info(f"Step 6a: Sending Touch 1 to {target_email}...")
+            try:
+                from actions import send_outreach_email
+                if send_outreach_email(target_email, target_name, outreach):
+                    sent_to = target_email
+            except Exception as e:
+                logger.warning(f"Auto-send skipped: {e}")
+
+        # Step 7 — Push to Telegram
+        logger.info("Step 7: Sending to Telegram...")
+        alert_pipeline_result(opportunity, validation, biz_model or "Skipped (rated PASS).", outreach, leads, sent_to)
+        logger.info("Daily pipeline complete.")
+
     except Exception as e:
-        logger.error(f"Daily opportunity error: {e}")
+        logger.error(f"Daily pipeline error: {e}")
+        try:
+            from telegram_alerts import send_alert
+            send_alert(f"⚠️ *Entrepreneur pipeline error:* {str(e)[:200]}")
+        except Exception:
+            pass
 
 
 def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=TZ)
-    scheduler.add_job(daily_opportunity_alert, CronTrigger(hour=7, minute=0, timezone=TZ), id="daily_opportunity", replace_existing=True)
+    scheduler.add_job(
+        daily_full_pipeline,
+        CronTrigger(hour=7, minute=0, timezone=TZ),
+        id="daily_pipeline",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Entrepreneur scheduler started — daily opportunity at 7am Dubai")
+    logger.info("Entrepreneur scheduler started — full pipeline at 7am Dubai")
     return scheduler

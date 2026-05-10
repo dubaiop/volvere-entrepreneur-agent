@@ -304,6 +304,15 @@ def metrics_endpoint():
     return get_metrics()
 
 
+@app.post("/pipeline/run")
+def run_pipeline():
+    """Manually trigger the full opportunity pipeline (find → validate → model → outreach → Telegram)."""
+    import threading
+    from scheduler import daily_full_pipeline
+    threading.Thread(target=daily_full_pipeline, daemon=True).start()
+    return {"status": "started", "message": "Pipeline running in background — check Telegram for results."}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
