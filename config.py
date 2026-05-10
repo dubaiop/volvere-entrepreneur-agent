@@ -13,3 +13,4 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 SALES_AGENT_URL = os.environ.get("SALES_AGENT_URL", "")
 EMAIL_AGENT_URL = os.environ.get("EMAIL_AGENT_URL", "")
+GTM_AGENT_URL = os.environ.get("GTM_AGENT_URL", "")

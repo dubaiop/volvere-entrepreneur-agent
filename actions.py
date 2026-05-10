@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 SALES_AGENT_URL = os.environ.get("SALES_AGENT_URL", "").rstrip("/")
 EMAIL_AGENT_URL = os.environ.get("EMAIL_AGENT_URL", "").rstrip("/")
+GTM_AGENT_URL = os.environ.get("GTM_AGENT_URL", "").rstrip("/")
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "Volvere.io")
 
 
@@ -85,6 +86,68 @@ def _extract_touch1(outreach_text: str) -> dict:
         "subject": subject or f"Quick intro — {COMPANY_NAME}",
         "body": body,
     }
+
+
+def score_opportunity_icp(opportunity: str, icp: str) -> str:
+    """Call GTM agent to score the opportunity's ICP and return tier + reasoning."""
+    if not GTM_AGENT_URL:
+        logger.warning("GTM_AGENT_URL not set — skipping ICP scoring")
+        return ""
+    try:
+        r = requests.post(
+            f"{GTM_AGENT_URL}/run/sync",
+            json={
+                "skill": "icp-scoring",
+                "input": f"Opportunity: {opportunity[:400]}\n\nTarget ICP: {icp[:400]}",
+                "context": f"{COMPANY_NAME} — AI agent platform, B2B SaaS, Dubai/MENA",
+            },
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json().get("result", "")
+    except Exception as e:
+        logger.error(f"ICP scoring failed: {e}")
+        return ""
+
+
+def push_opportunity_to_hubspot(title: str, description: str) -> str:
+    """Create a deal in HubSpot for a validated opportunity. Returns deal ID or empty string."""
+    if not GTM_AGENT_URL:
+        logger.warning("GTM_AGENT_URL not set — skipping HubSpot push")
+        return ""
+    try:
+        r = requests.post(
+            f"{GTM_AGENT_URL}/hubspot/add-deal",
+            json={"name": title[:100], "description": description[:2000], "stage": "appointmentscheduled"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        deal_id = r.json().get("deal_id", "")
+        logger.info(f"HubSpot deal created: {deal_id} — {title}")
+        return str(deal_id)
+    except Exception as e:
+        logger.error(f"HubSpot push failed: {e}")
+        return ""
+
+
+def push_lead_to_hubspot(email: str, name: str, company: str, notes: str) -> str:
+    """Create a contact in HubSpot for a qualified lead. Returns contact ID or empty string."""
+    if not GTM_AGENT_URL:
+        return ""
+    parts = name.split(" ", 1)
+    firstname = parts[0] if parts else name
+    lastname = parts[1] if len(parts) > 1 else ""
+    try:
+        r = requests.post(
+            f"{GTM_AGENT_URL}/hubspot/add-lead",
+            json={"email": email, "firstname": firstname, "lastname": lastname, "company": company, "notes": notes[:500]},
+            timeout=20,
+        )
+        r.raise_for_status()
+        return str(r.json().get("contact_id", ""))
+    except Exception as e:
+        logger.error(f"HubSpot lead push failed: {e}")
+        return ""
 
 
 def send_outreach_email(to_email: str, to_name: str, outreach_text: str, from_persona: str = "cmo_advisor") -> bool:

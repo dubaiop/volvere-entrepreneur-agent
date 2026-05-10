@@ -68,32 +68,53 @@ def daily_full_pipeline():
                 session_id="scheduler"
             )
 
-        # Step 4 — Find leads
+        # Step 4 — Score ICP via GTM agent
+        icp_score = ""
+        if is_strong and biz_model:
+            logger.info("Step 4: Scoring ICP...")
+            try:
+                from actions import score_opportunity_icp
+                icp_score = score_opportunity_icp(opportunity, biz_model)
+            except Exception as e:
+                logger.warning(f"ICP scoring skipped: {e}")
+
+        # Step 5 — Push opportunity to HubSpot as a deal
+        deal_id = ""
+        if is_strong:
+            logger.info("Step 5: Pushing to HubSpot...")
+            try:
+                from actions import push_opportunity_to_hubspot
+                title = opportunity.split("\n")[0].replace("🎯", "").replace("**Opportunity**:", "").strip()[:80]
+                deal_id = push_opportunity_to_hubspot(title or "New Opportunity", opportunity[:1000])
+            except Exception as e:
+                logger.warning(f"HubSpot push skipped: {e}")
+
+        # Step 6 — Find leads
         leads = ""
         if is_strong and biz_model:
-            logger.info("Step 4: Searching for leads...")
+            logger.info("Step 6: Searching for leads...")
             try:
                 from actions import find_leads
                 leads = find_leads(biz_model[:300])
             except Exception as e:
                 logger.warning(f"Lead search skipped: {e}")
 
-        # Step 5 — Generate outreach via sales agent
+        # Step 7 — Generate outreach via sales agent
         outreach = ""
         if is_strong and biz_model:
-            logger.info("Step 5: Generating outreach...")
+            logger.info("Step 7: Generating outreach...")
             try:
                 from actions import generate_outreach
                 outreach = generate_outreach(opportunity, biz_model)
             except Exception as e:
                 logger.warning(f"Outreach generation skipped: {e}")
 
-        # Step 6 — Auto-send Touch 1 if a target email is configured
+        # Step 8 — Auto-send Touch 1 if a target email is configured
         sent_to = ""
         target_email = os.environ.get("OUTREACH_TARGET_EMAIL", "")
         target_name = os.environ.get("OUTREACH_TARGET_NAME", "")
         if is_strong and outreach and target_email:
-            logger.info(f"Step 6a: Sending Touch 1 to {target_email}...")
+            logger.info(f"Step 8: Sending Touch 1 to {target_email}...")
             try:
                 from actions import send_outreach_email
                 if send_outreach_email(target_email, target_name, outreach):
@@ -101,9 +122,9 @@ def daily_full_pipeline():
             except Exception as e:
                 logger.warning(f"Auto-send skipped: {e}")
 
-        # Step 7 — Push to Telegram
-        logger.info("Step 7: Sending to Telegram...")
-        alert_pipeline_result(opportunity, validation, biz_model or "Skipped (rated PASS).", outreach, leads, sent_to)
+        # Step 9 — Push to Telegram
+        logger.info("Step 9: Sending to Telegram...")
+        alert_pipeline_result(opportunity, validation, biz_model or "Skipped (rated PASS).", outreach, leads, sent_to, icp_score, deal_id)
         logger.info("Daily pipeline complete.")
 
     except Exception as e:
