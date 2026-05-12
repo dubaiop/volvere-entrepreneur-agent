@@ -264,7 +264,7 @@ async function uploadFile(){{
   if(!file)return;
   const label=document.getElementById('uploadLabel');
   label.textContent='⏳';
-  addMsg('user',`📎 ${file.name}`);
+  addMsg('user',`📎 ${{file.name}}`);
   const form=new FormData();form.append('file',file);
   try{{
     const r=await fetch('/upload',{{method:'POST',body:form}});
