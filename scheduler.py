@@ -95,7 +95,7 @@ def daily_full_pipeline():
             logger.info("Step 6: Searching for leads...")
             try:
                 from actions import find_leads
-                leads = find_leads(biz_model[:300])
+                leads = find_leads(biz_model, opportunity)
             except Exception as e:
                 logger.warning(f"Lead search skipped: {e}")
 

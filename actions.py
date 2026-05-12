@@ -37,12 +37,11 @@ def generate_outreach(opportunity: str, icp: str) -> str:
         return ""
 
 
-def find_leads(icp: str, max_results: int = 5) -> str:
-    """Search the web for real companies/people matching the ICP."""
+def find_leads(biz_model: str, opportunity: str = "") -> str:
+    """Search for real leads using targeted queries extracted from the business model ICP."""
     try:
-        from web_search import search
-        query = f"{icp[:80]} startup founder pain point 2025 hiring"
-        return search(query, max_results=max_results)
+        from web_search import search_leads
+        return search_leads(biz_model, opportunity)
     except Exception as e:
         logger.error(f"Lead search failed: {e}")
         return ""
