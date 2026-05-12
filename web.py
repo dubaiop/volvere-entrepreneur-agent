@@ -1,10 +1,11 @@
 """Entrepreneur Agent — FastAPI web dashboard."""
 
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
+import io
 
 from config import PORT, COMPANY_NAME, TELEGRAM_BOT_TOKEN
 from agent import run_skill, chat, clear_memory
@@ -203,7 +204,10 @@ def dashboard():
         <div class="msg sys">Tell me an industry you're curious about or an idea you want to test.</div>
       </div>
       <div class="chat-input-row">
-        <textarea class="chat-in" id="chatIn" rows="1" placeholder="Message..." onkeydown="handleKey(event)"></textarea>
+        <label title="Upload PDF, TXT, or DOCX" style="cursor:pointer;background:var(--b2);border:1px solid var(--b2);border-radius:8px;padding:9px 10px;flex-shrink:0;font-size:14px;display:flex;align-items:center" id="uploadLabel">
+          📎<input type="file" id="fileIn" accept=".pdf,.txt,.md,.docx" style="display:none" onchange="uploadFile()"/>
+        </label>
+        <textarea class="chat-in" id="chatIn" rows="1" placeholder="Message or drop a PDF..." onkeydown="handleKey(event)"></textarea>
         <button class="send-btn" id="sendBtn" onclick="send()">➤</button>
       </div>
     </div>
@@ -254,6 +258,26 @@ async function send(){{
   }}catch(e){{ph.textContent='Error: '+e.message;}}
   btn.disabled=false;
 }}
+
+async function uploadFile(){{
+  const file=document.getElementById('fileIn').files[0];
+  if(!file)return;
+  const label=document.getElementById('uploadLabel');
+  label.textContent='⏳';
+  addMsg('user',`📎 ${file.name}`);
+  const form=new FormData();form.append('file',file);
+  try{{
+    const r=await fetch('/upload',{{method:'POST',body:form}});
+    const d=await r.json();
+    if(d.error){{addMsg('bot','Upload error: '+d.error);}}
+    else{{
+      const ph=addMsg('bot','...');
+      const r2=await fetch('/chat',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{message:d.prompt,session_id:sid}})}});
+      const d2=await r2.json();ph.textContent=d2.reply||d2.detail||'No response.';
+    }}
+  }}catch(e){{addMsg('bot','Error: '+e.message);}}
+  label.innerHTML='📎<input type="file" id="fileIn" accept=".pdf,.txt,.md,.docx" style="display:none" onchange="uploadFile()"/>';
+}}
 </script>
 </body>
 </html>"""
@@ -302,6 +326,50 @@ def opportunities():
 @app.get("/metrics")
 def metrics_endpoint():
     return get_metrics()
+
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Extract text from PDF/TXT/DOCX and return a prompt ready for the chat endpoint."""
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content = await file.read()
+
+    try:
+        if ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        elif ext in ("txt", "md"):
+            text = content.decode("utf-8", errors="ignore")
+        elif ext == "docx":
+            try:
+                import zipfile, re
+                with zipfile.ZipFile(io.BytesIO(content)) as z:
+                    xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+                text = re.sub(r"<[^>]+>", " ", xml)
+                text = re.sub(r"\s+", " ", text).strip()
+            except Exception:
+                return {"error": "Could not parse DOCX file."}
+        else:
+            return {"error": f"Unsupported file type '.{ext}'. Upload PDF, TXT, or DOCX."}
+
+        text = text.strip()
+        if not text:
+            return {"error": "File appears to be empty or unreadable."}
+
+        # Truncate to ~6000 chars to stay within context limits
+        truncated = text[:6000] + ("\n\n[truncated...]" if len(text) > 6000 else "")
+
+        prompt = (
+            f"I've uploaded a file: **{filename}**\n\n"
+            f"Here is its content:\n\n---\n{truncated}\n---\n\n"
+            f"Apply your entrepreneur framework to this. Find the hidden opportunity, destroy the assumptions, and tell me what's actually worth building here."
+        )
+        return {"filename": filename, "chars": len(text), "prompt": prompt}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/pipeline/run")
