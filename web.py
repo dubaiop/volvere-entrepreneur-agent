@@ -6,6 +6,21 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 import io
+import re
+
+_URL_RE = re.compile(r'https?://[^\s]+')
+
+
+def _fetch_url_text(url: str) -> str:
+    import requests
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; volvere-entrepreneur-bot/1.0)"}
+    r = requests.get(url, headers=headers, timeout=12)
+    r.raise_for_status()
+    text = re.sub(r'<script[^>]*>.*?</script>', ' ', r.text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<style[^>]*>.*?</style>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:5000]
 
 from config import PORT, COMPANY_NAME, TELEGRAM_BOT_TOKEN
 from agent import run_skill, chat, clear_memory
@@ -251,7 +266,8 @@ async function send(){{
   const msg=inp.value.trim();if(!msg)return;
   inp.value='';addMsg('user',msg);
   const btn=document.getElementById('sendBtn');btn.disabled=true;
-  const ph=addMsg('bot','...');
+  const hasUrl=/https?:\/\/\S+/.test(msg);
+  const ph=addMsg('bot',hasUrl?'🌐 Fetching URL content...':'...');
   try{{
     const r=await fetch('/chat',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{message:msg,session_id:sid}})}});
     const d=await r.json();ph.textContent=d.reply||d.detail||'No response.';
@@ -298,7 +314,19 @@ class SkillReq(BaseModel):
 @app.post("/chat")
 def chat_endpoint(req: ChatReq):
     try:
-        return {"reply": chat(req.message, req.session_id or "web")}
+        message = req.message
+        urls = _URL_RE.findall(message)
+        if urls:
+            fetched = []
+            for url in urls[:2]:  # max 2 URLs per message
+                try:
+                    page_text = _fetch_url_text(url)
+                    fetched.append(f"[Page content from {url}]:\n{page_text}")
+                except Exception:
+                    pass
+            if fetched:
+                message = message + "\n\n" + "\n\n".join(fetched)
+        return {"reply": chat(message, req.session_id or "web")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
