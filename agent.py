@@ -102,3 +102,29 @@ def chat(user_input: str, session_id: str = "default") -> str:
 
 def clear_memory(session_id: str = "default"):
     _memory.pop(session_id, None)
+
+
+def strategy_matrix(vision: str, task: str, session_id: str = "strategy") -> dict:
+    import json, re
+    system = (
+        "You are a world-class strategy consultant. Given a Vision and a Strategic Task, "
+        "fill in a 3×3 Strategic Decision Matrix and write a final recommendation.\n\n"
+        "Return ONLY valid JSON — no markdown, no code blocks, no extra text.\n\n"
+        "Required keys:\n"
+        "  market_who, market_size, market_pain,\n"
+        "  product_what, product_diff, product_moat,\n"
+        "  execution_how, execution_timeline, execution_team,\n"
+        "  decision\n\n"
+        "Each cell: 2-3 crisp, specific, opinionated sentences. No filler.\n"
+        "decision: 3-5 sentences with a clear GO / NO-GO verdict and the single most important next action."
+    )
+    prompt = f"Vision: {vision}\n\nStrategic Task: {task}"
+    result = _call(system, [{"role": "user", "content": prompt}], max_tokens=2000)
+    log_interaction(session_id, "strategy-matrix", f"{vision[:100]} | {task[:100]}", result[:500])
+    try:
+        return json.loads(result.strip())
+    except Exception:
+        match = re.search(r'\{[\s\S]*\}', result)
+        if match:
+            return json.loads(match.group())
+        raise ValueError(f"AI did not return valid JSON: {result[:300]}")

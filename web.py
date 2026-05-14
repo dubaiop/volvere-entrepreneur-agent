@@ -23,7 +23,7 @@ def _fetch_url_text(url: str) -> str:
     return text[:5000]
 
 from config import PORT, COMPANY_NAME, TELEGRAM_BOT_TOKEN
-from agent import run_skill, chat, clear_memory
+from agent import run_skill, chat, clear_memory, strategy_matrix
 from skills.prompts import SKILL_MAP
 from database import init_db, get_opportunities, get_audit_log, get_metrics
 
@@ -165,7 +165,7 @@ def dashboard():
 <header>
   <a class="logo" href="/"><span class="logo-dot"></span>{COMPANY_NAME} Entrepreneur Agent</a>
   <nav class="nav">
-    <a href="#skills">Skills</a><a href="/audit">Audit</a><a href="/docs">API</a>
+    <a href="#skills">Skills</a><a href="/strategy">Strategy</a><a href="/audit">Audit</a><a href="/docs">API</a>
   </nav>
 </header>
 <main>
@@ -412,6 +412,167 @@ def run_pipeline():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+class StrategyReq(BaseModel):
+    vision: str
+    task: str
+    session_id: Optional[str] = "strategy"
+
+
+@app.get("/strategy", response_class=HTMLResponse)
+def strategy_page():
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{COMPANY_NAME} — Strategy Matrix</title>
+  <style>
+    *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+    :root{{--bg:#07070f;--s:#0e0e1c;--s2:#141428;--b:#1a1a30;--b2:#242445;--a:#f59e0b;--a2:#fbbf24;--green:#10b981;--purple:#8b5cf6;--blue:#3b82f6;--text:#f0f0ff;--m:#55557a;--m2:#8080a8;--r:12px}}
+    body{{font-family:-apple-system,BlinkMacSystemFont,'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}}
+    header{{border-bottom:1px solid var(--b);padding:0 40px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:rgba(7,7,15,.96);backdrop-filter:blur(16px);z-index:100}}
+    .logo{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;text-decoration:none;color:var(--text)}}
+    .logo-dot{{width:10px;height:10px;border-radius:50%;background:var(--a);box-shadow:0 0 12px var(--a)}}
+    .nav a{{color:var(--m2);text-decoration:none;font-size:13px;margin-left:24px}}
+    .nav a:hover{{color:var(--text)}}
+    main{{max-width:1120px;margin:0 auto;padding:40px}}
+    h1{{font-size:26px;font-weight:700;margin-bottom:6px}}
+    .sub{{color:var(--m2);font-size:13px;margin-bottom:32px}}
+    .inputs{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}}
+    .input-group label{{font-size:12px;color:var(--m2);font-weight:600;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}}
+    .input-group textarea{{width:100%;background:var(--s);border:1px solid var(--b2);border-radius:10px;color:var(--text);padding:12px 14px;font-size:13px;font-family:inherit;outline:none;resize:vertical;min-height:80px;transition:border-color .15s}}
+    .input-group textarea:focus{{border-color:var(--a)}}
+    .build-btn{{background:var(--a);color:#07070f;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .15s;width:100%;margin-bottom:36px}}
+    .build-btn:hover{{opacity:.85}}
+    .build-btn:disabled{{opacity:.4;cursor:not-allowed}}
+    .matrix-wrap{{overflow-x:auto;margin-bottom:32px}}
+    .matrix{{display:grid;grid-template-columns:106px 1fr 1fr 1fr;gap:8px;min-width:680px}}
+    .col-hdr{{padding:12px 14px;border-radius:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;text-align:center}}
+    .col-hdr.market{{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);color:#93c5fd}}
+    .col-hdr.product{{background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);color:#c4b5fd}}
+    .col-hdr.exec{{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);color:#6ee7b7}}
+    .row-lbl{{display:flex;align-items:center;justify-content:flex-end;padding-right:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--m);text-align:right;line-height:1.4}}
+    .cell{{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:14px 16px;min-height:120px;transition:border-color .3s}}
+    .cell.market{{border-top:2px solid rgba(59,130,246,.4)}}
+    .cell.product{{border-top:2px solid rgba(139,92,246,.4)}}
+    .cell.exec{{border-top:2px solid rgba(16,185,129,.4)}}
+    .cell.filled{{border-color:var(--b2)}}
+    .cell-q{{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;color:var(--m2)}}
+    .cell-a{{font-size:13px;line-height:1.65;color:var(--m)}}
+    .cell.filled .cell-a{{color:var(--text)}}
+    .decision-box{{background:linear-gradient(135deg,rgba(245,158,11,.07),rgba(139,92,246,.07));border:1px solid rgba(245,158,11,.25);border-radius:14px;padding:26px 30px}}
+    .decision-lbl{{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--a2);margin-bottom:12px}}
+    .decision-text{{font-size:15px;line-height:1.75;color:var(--text)}}
+    .spinner{{display:inline-block;width:13px;height:13px;border:2px solid rgba(245,158,11,.25);border-top-color:var(--a2);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:5px}}
+    @keyframes spin{{to{{transform:rotate(360deg)}}}}
+    @media(max-width:780px){{.inputs{{grid-template-columns:1fr}}}}
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/"><span class="logo-dot"></span>{COMPANY_NAME} Entrepreneur Agent</a>
+  <nav class="nav">
+    <a href="/">Dashboard</a>
+    <a href="/strategy" style="color:var(--a)">Strategy</a>
+    <a href="/audit">Audit</a>
+    <a href="/docs">API</a>
+  </nav>
+</header>
+<main>
+  <h1>⚡ Strategy Decision Matrix</h1>
+  <p class="sub">Enter your vision and strategic challenge — AI maps the 3×3 framework and delivers a clear decision.</p>
+
+  <div class="inputs">
+    <div class="input-group">
+      <label>Vision — the end state you're building toward</label>
+      <textarea id="vision" placeholder="e.g. Build the leading AI compliance platform for UAE mid-market companies by 2027"></textarea>
+    </div>
+    <div class="input-group">
+      <label>Task — the strategic decision that needs to be made</label>
+      <textarea id="task" placeholder="e.g. Should we launch a freemium ESG reporting tool or go direct enterprise sales first?"></textarea>
+    </div>
+  </div>
+
+  <button class="build-btn" id="buildBtn" onclick="buildMatrix()">⚡ Build Strategy Matrix</button>
+
+  <div class="matrix-wrap">
+    <div class="matrix">
+      <div></div>
+      <div class="col-hdr market">🎯 Market</div>
+      <div class="col-hdr product">🔧 Product</div>
+      <div class="col-hdr exec">⚡ Execution</div>
+
+      <div class="row-lbl">Customer</div>
+      <div class="cell market" id="cell-mw"><div class="cell-q">Who?</div><div class="cell-a" id="t-mw">Enter vision and task above.</div></div>
+      <div class="cell product" id="cell-pw"><div class="cell-q">What?</div><div class="cell-a" id="t-pw">—</div></div>
+      <div class="cell exec" id="cell-eh"><div class="cell-q">How?</div><div class="cell-a" id="t-eh">—</div></div>
+
+      <div class="row-lbl">Scale</div>
+      <div class="cell market" id="cell-ms"><div class="cell-q">Market Size?</div><div class="cell-a" id="t-ms">—</div></div>
+      <div class="cell product" id="cell-pd"><div class="cell-q">Differentiation?</div><div class="cell-a" id="t-pd">—</div></div>
+      <div class="cell exec" id="cell-et"><div class="cell-q">Timeline?</div><div class="cell-a" id="t-et">—</div></div>
+
+      <div class="row-lbl">Foundation</div>
+      <div class="cell market" id="cell-mp"><div class="cell-q">Pain Point?</div><div class="cell-a" id="t-mp">—</div></div>
+      <div class="cell product" id="cell-pm"><div class="cell-q">Moat?</div><div class="cell-a" id="t-pm">—</div></div>
+      <div class="cell exec" id="cell-ee"><div class="cell-q">Team?</div><div class="cell-a" id="t-ee">—</div></div>
+    </div>
+  </div>
+
+  <div class="decision-box">
+    <div class="decision-lbl">✅ Strategic Decision</div>
+    <div class="decision-text" id="decision">Fill in Vision and Task above, then click Build Strategy Matrix.</div>
+  </div>
+</main>
+
+<script>
+const MAP=[
+  ['market_who','t-mw','cell-mw'],
+  ['market_size','t-ms','cell-ms'],
+  ['market_pain','t-mp','cell-mp'],
+  ['product_what','t-pw','cell-pw'],
+  ['product_diff','t-pd','cell-pd'],
+  ['product_moat','t-pm','cell-pm'],
+  ['execution_how','t-eh','cell-eh'],
+  ['execution_timeline','t-et','cell-et'],
+  ['execution_team','t-ee','cell-ee'],
+];
+async function buildMatrix(){{
+  const vision=document.getElementById('vision').value.trim();
+  const task=document.getElementById('task').value.trim();
+  if(!vision||!task){{alert('Please fill in both Vision and Task.');return;}}
+  const btn=document.getElementById('buildBtn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Analyzing...';
+  MAP.forEach(([k,tid,cid])=>{{
+    document.getElementById(tid).innerHTML='<span class="spinner"></span>';
+    document.getElementById(cid).classList.remove('filled');
+  }});
+  document.getElementById('decision').innerHTML='<span class="spinner"></span>Synthesizing final decision...';
+  try{{
+    const r=await fetch('/strategy/analyze',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{vision,task}})}});
+    const d=await r.json();
+    if(d.detail){{alert('Error: '+d.detail);btn.disabled=false;btn.innerHTML='⚡ Rebuild Matrix';return;}}
+    MAP.forEach(([k,tid,cid])=>{{
+      document.getElementById(tid).textContent=d[k]||'—';
+      document.getElementById(cid).classList.add('filled');
+    }});
+    document.getElementById('decision').textContent=d.decision||'—';
+  }}catch(e){{alert('Error: '+e.message);}}
+  btn.disabled=false;btn.innerHTML='⚡ Rebuild Matrix';
+}}
+</script>
+</body>
+</html>"""
+
+
+@app.post("/strategy/analyze")
+def strategy_analyze(req: StrategyReq):
+    try:
+        result = strategy_matrix(req.vision, req.task, req.session_id or "strategy")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
