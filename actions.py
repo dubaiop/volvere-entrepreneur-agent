@@ -175,6 +175,7 @@ def send_outreach_email(to_email: str, to_name: str, outreach_text: str, from_pe
                 "subject": touch1["subject"],
                 "body": touch1["body"],
                 "from_persona": from_persona,
+                "full_sequence": outreach_text,
             },
             timeout=30,
         )
